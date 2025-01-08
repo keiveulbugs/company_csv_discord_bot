@@ -2,6 +2,7 @@ use dotenv::dotenv;
 use poise::{
     serenity_prelude::{
         self as serenity, CreateAttachment, CreateEmbed, GetMessages, Message, MessageId,
+        ReactionType,
     },
     CreateReply,
 };
@@ -132,7 +133,7 @@ async fn get_csv(
     Ok(())
 }
 
-///
+/// fetching messages and trying to parse them
 #[poise::command(slash_command)]
 async fn fetch_messages(
     ctx: Context<'_>,
@@ -140,13 +141,17 @@ async fn fetch_messages(
     delete: bool,
     #[description = "What is the starting message? Please copy paste the message ID"]
     message_id: MessageId,
+    #[description = "Emoji to show which ones are used"] emoji: ReactionType,
 ) -> Result<(), Error> {
     ctx.reply("Fetching messages").await?;
     let mut vecmessages: Vec<Message> = vec![];
     let mut lastmessageid = message_id;
+    let channelid = ctx.channel_id();
+    let firstmessage = channelid.message(ctx, lastmessageid).await?;
+    vecmessages.push(firstmessage);
+
     loop {
-        let mut messages = ctx
-            .channel_id()
+        let messages = channelid
             .messages(ctx, GetMessages::new().after(lastmessageid).limit(100))
             .await?;
         vecmessages.append(&mut messages.clone());
@@ -179,14 +184,14 @@ async fn fetch_messages(
     for message in vecmessages {
         let content = message.content.replace(":", "");
         /*
-         Order Number: 12354
-         Item Code: 62156
-         Name: Azwad
-         Address: Alexandria, Egypt
-         Phone: 000000000000
-         Price: 620
-         Quantity: 2
-        */
+        Order Number: 12354
+        Item Code: 62156
+        Name: Azwad
+        Address: Alexandria, Egypt
+        Phone: 000000000000
+        Price: 620
+        Quantity: 2
+                */
         let mut indexes = vec![];
         let mut ordernumbers = String::new();
         let mut itemcode = String::new();
@@ -281,6 +286,7 @@ async fn fetch_messages(
             Ok(val) => val,
             Err(err) => return Err(format!("Couldn't write to the csv file:\n{:#?}", err).into()),
         };
+        message.react(ctx, emoji.clone()).await?;
     }
     match wtr.flush() {
         Ok(val) => val,
