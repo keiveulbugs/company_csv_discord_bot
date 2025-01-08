@@ -15,7 +15,7 @@ COPY src ./src
 
 COPY .env ./.env
 
-COPY README.md ./README.md
+
 
 RUN cargo install --path .
 
