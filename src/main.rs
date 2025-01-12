@@ -19,11 +19,114 @@ type Context<'a> = poise::Context<'a, Data, Error>;
  Price: 620
  Quantity: 2
 */
+
+use poise::Modal;
+type ApplicationContext<'a> = poise::ApplicationContext<'a, Data, Error>;
+
+#[derive(Debug, Modal)]
+#[name = "Add order"] // Struct name by default
+struct MyModal {
+    #[name = "Name"]
+    #[placeholder = "The Artist Formerly Known as Prince"]
+    name: Option<String>,
+    #[name = "Address"]
+    #[placeholder = "2-Chome Shibuya Tokyo 533-521"]
+    address: Option<String>,
+    #[name = "Phone Number"]
+    #[placeholder = "+880171234567"]
+    phone: Option<String>,
+    #[name = "Price"]
+    #[placeholder = "1000000"]
+    price: Option<String>,
+}
+
+#[poise::command(slash_command)]
+pub async fn popup_add_order(
+    ctx: ApplicationContext<'_>,
+    #[description = "Order Number"] ordernumber: Option<String>,
+    #[description = "Quantity"] quantity: Option<String>,
+    #[description = "Item Code"] itemcode: Option<String>,
+) -> Result<(), Error> {
+    let data = match MyModal::execute(ctx).await? {
+        Some(val) => val,
+        None => return Ok(()),
+    };
+
+    if ordernumber.is_none()
+        && data.name.is_none()
+        && data.address.is_none()
+        && data.phone.is_none()
+        && quantity.is_none()
+        && itemcode.is_none()
+        && data.price.is_none()
+    {
+        return Err("No data to be added to the csv".into());
+    }
+
+    let id = ctx
+        .guild_id()
+        .map(|x| x.to_string())
+        .unwrap_or(ctx.author().id.to_string());
+
+    let file = match std::fs::File::options()
+        .append(true)
+        .create(true)
+        .open(format!("slashcommands-{}.csv", id))
+    {
+        Ok(val) => val,
+        Err(err) => return Err(format!("Couldn't open the csv file:\n{:#?}", err).into()),
+    };
+    let mut wtr = csv::Writer::from_writer(file);
+
+    match wtr.serialize((
+        ordernumber.clone(),
+        itemcode.clone(),
+        data.name.clone(),
+        data.address.clone(),
+        data.phone.clone(),
+        data.price.clone(),
+        quantity.clone(),
+    )) {
+        Ok(val) => val,
+        Err(err) => return Err(format!("Couldn't write to the csv file:\n{:#?}", err).into()),
+    };
+    match wtr.flush() {
+        Ok(val) => val,
+        Err(err) => {
+            return Err(format!(
+                "Couldn't make sure everything was written to the csv file:\n{:#?}",
+                err
+            )
+            .into())
+        }
+    };
+
+    let reply = ctx.reply_builder(
+    CreateReply::default().embed(
+        CreateEmbed::new()
+            .title("Created a new record!")
+            .description(format!(
+                "ordernumber: {}\nitem code: {}\nname: {}\naddress: {}\nphone: {}\nprice: {}\nquantity: {}",
+                ordernumber.unwrap_or_default(),
+                itemcode.unwrap_or_default(),
+                data.name.unwrap_or_default(),
+                data.address.unwrap_or_default(),
+                data.phone.unwrap_or_default(),
+                data.price.unwrap_or_default(),
+                quantity.unwrap_or_default()
+            )),
+    ),
+);
+    ctx.send(reply).await?;
+
+    Ok(())
+}
+
 /// Add a company through a slash command
 /// This is the least error prone way to add them to a csv
 #[poise::command(slash_command)]
 #[allow(clippy::too_many_arguments)]
-async fn add_company(
+async fn add_order(
     ctx: Context<'_>,
     #[description = "Order Number"] ordernumber: Option<String>,
     #[description = "Item Code"] itemcode: Option<String>,
@@ -116,13 +219,7 @@ async fn get_csv(
     let path = std::path::Path::new(&pathid);
     let attachment = match CreateAttachment::path(path).await {
         Ok(val) => val,
-        Err(err) => {
-            return Err(format!(
-                "There is no csv available or could not open it:\n{:#?}",
-                err
-            )
-            .into())
-        }
+        Err(_) => return Err("There is no csv available or could not open it".into()),
     };
     let reply = ctx.reply_builder(CreateReply::default().attachment(attachment));
     ctx.send(reply).await?;
@@ -326,7 +423,7 @@ async fn main() {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![add_company(), get_csv(), fetch_messages()],
+            commands: vec![add_order(), get_csv(), fetch_messages(), popup_add_order()],
             ..Default::default()
         })
         .setup(|ctx, _ready, framework| {
